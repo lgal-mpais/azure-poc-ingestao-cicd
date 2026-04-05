@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 try:
     import azure.functions as func
@@ -29,7 +29,8 @@ def _validate(payload: dict) -> tuple[bool, str]:
 def ingest(payload: dict) -> dict:
     _ensure_dirs()
     ok, reason = _validate(payload)
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     if ok:
         path = os.path.join(
@@ -79,7 +80,7 @@ def main(req):
         if not payload:
             payload = {"fonte": "POC", "valor": 123}
 
-        payload["timestamp_utc"] = datetime.utcnow().isoformat() + "Z"
+        payload["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
         result = ingest(payload)
 
         return func.HttpResponse(
@@ -92,6 +93,6 @@ def main(req):
     payload = {
         "fonte": "POC",
         "valor": 123,
-        "timestamp_utc": datetime.utcnow().isoformat() + "Z",
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
     }
     return ingest(payload)
