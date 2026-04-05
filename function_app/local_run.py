@@ -1,5 +1,7 @@
 from datetime import datetime
+
 from function_app.main import ingest
+
 
 if __name__ == "__main__":
     payload = {
