@@ -79,9 +79,7 @@ def main(req):
         if not payload:
             payload = {"fonte": "POC", "valor": 123}
 
-        payload["timestamp_utc"] = (
-            datetime.utcnow().isoformat() + "Z"
-        )
+        payload["timestamp_utc"] = datetime.utcnow().isoformat() + "Z"
         result = ingest(payload)
 
         return func.HttpResponse(
