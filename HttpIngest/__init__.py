@@ -1,11 +1,15 @@
 import json
+import logging
 import os
+import traceback
 from datetime import datetime, timezone
 
 import azure.functions as func
 
-RAW_DIR = os.path.join("data", "raw")
-REJECT_DIR = os.path.join("data", "reject")
+# Diretórios graváveis no Azure Functions (Linux):
+# /tmp é o mais seguro para POC
+RAW_DIR = os.path.join("/tmp", "data", "raw")
+REJECT_DIR = os.path.join("/tmp", "data", "reject")
 
 
 def _ensure_dirs() -> None:
@@ -25,6 +29,7 @@ def _validate(payload: dict) -> tuple[bool, str]:
 
 def _ingest(payload: dict) -> dict:
     _ensure_dirs()
+
     ok, reason = _validate(payload)
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
@@ -41,25 +46,53 @@ def _ingest(payload: dict) -> dict:
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
-    # GET: usa default; POST: usa JSON do body
-    payload = {}
-
     try:
-        if req.method.upper() == "POST":
-            body = req.get_json()
-            payload = body if isinstance(body, dict) else {}
-    except ValueError:
+        logging.info("HttpIngest 시작: method=%s", req.method)
+
         payload = {}
 
-    if not payload:
-        payload = {"fonte": "POC", "valor": 123}
+        # POST/PUT/PATCH: tenta ler JSON (se vier)
+        if req.method.upper() in {"POST", "PUT", "PATCH"}:
+            try:
+                body = req.get_json()
+                payload = body if isinstance(body, dict) else {}
+            except ValueError:
+                payload = {}
 
-    payload["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+        # GET: opcionalmente aceitar querystring
+        if req.method.upper() == "GET":
+            fonte = req.params.get("fonte")
+            valor = req.params.get("valor")
+            if fonte is not None and valor is not None:
+                try:
+                    valor_num = float(valor) if "." in valor else int(valor)
+                except ValueError:
+                    valor_num = valor  # vai cair no reject por validação
+                payload = {"fonte": fonte, "valor": valor_num}
 
-    result = _ingest(payload)
+        # fallback default
+        if not payload:
+            payload = {"fonte": "POC", "valor": 123}
 
-    return func.HttpResponse(
-        body=json.dumps(result, ensure_ascii=False),
-        status_code=200,
-        mimetype="application/json",
-    )
+        payload["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+
+        result = _ingest(payload)
+
+        return func.HttpResponse(
+            body=json.dumps(result, ensure_ascii=False),
+            status_code=200,
+            mimetype="application/json",
+        )
+
+    except Exception as ex:
+        # Isso evita "500 sem mensagem" — você verá o stacktrace no response e nos logs
+        err = {
+            "error": str(ex),
+            "trace": traceback.format_exc(),
+        }
+        logging.error("Falha HttpIngest: %s", err["trace"])
+        return func.HttpResponse(
+            body=json.dumps(err, ensure_ascii=False),
+            status_code=500,
+            mimetype="application/json",
+        )
